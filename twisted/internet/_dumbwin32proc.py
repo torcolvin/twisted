@@ -7,6 +7,7 @@ http://isometric.sixsided.org/_/gates_in_the_head/
 """
 
 import os
+import time
 
 # Win32 imports
 import win32api
@@ -16,6 +17,8 @@ import win32file
 import win32pipe
 import win32process
 import win32security
+import win32job
+from win32con import CREATE_SUSPENDED
 
 import pywintypes
 
@@ -172,8 +175,18 @@ class Process(_pollingfile._PollingTimer, BaseProcess):
         cmdline = quoteArguments(args)
         # TODO: error detection here.  See #2787 and #4184.
         def doCreate():
-            self.hProcess, self.hThread, self.pid, dwTid = win32process.CreateProcess(
-                command, cmdline, None, None, 1, 0, env, path, StartupInfo)
+            # This fix to kill child processes on windows is based on
+            # http://www.microsoft.com/msj/0698/win320698.aspx
+            # create a uniquely named job object that will contain our processes
+            self.job = win32job.CreateJobObject(None, str(time.time()))
+            # start the process as suspended
+            self.hProcess, self.hThread, self.dwPid, self.dwTid = win32process.CreateProcess(
+                command, cmdline, None, None, 1, CREATE_SUSPENDED, env, path, StartupInfo)
+            # map the process to our newly created job object
+            win32job.AssignProcessToJobObject(self.job, self.hProcess)
+            # resume the process, from now on every child it will create
+            # will be assigned to the job object it now belongs to
+            win32process.ResumeThread(self.hThread)
         try:
             try:
                 doCreate()
@@ -249,10 +262,8 @@ class Process(_pollingfile._PollingTimer, BaseProcess):
 
 
     def signalProcess(self, signalID):
-        if self.pid is None:
-            raise error.ProcessExitedAlready()
         if signalID in ("INT", "TERM", "KILL"):
-            win32process.TerminateProcess(self.hProcess, 1)
+            win32job.TerminateJobObject(self.job, 1)
 
 
     def _getReason(self, status):
