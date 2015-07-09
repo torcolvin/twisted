@@ -179,6 +179,12 @@ class Process(_pollingfile._PollingTimer, BaseProcess):
             # http://www.microsoft.com/msj/0698/win320698.aspx
             # create a uniquely named job object that will contain our processes
             self.job = win32job.CreateJobObject(None, str(time.time()))
+            extended_info = win32job.QueryInformationJobObject(self.job,
+                win32job.JobObjectExtendedLimitInformation)
+            extended_info['BasicLimitInformation']['LimitFlags'] = \
+                win32job.JOB_OBJECT_LIMIT_BREAKAWAY_OK
+            win32job.SetInformationJobObject(self.job,
+                win32job.JobObjectExtendedLimitInformation, extended_info)
             # start the process as suspended
             self.hProcess, self.hThread, self.dwPid, self.dwTid = win32process.CreateProcess(
                 command, cmdline, None, None, 1, CREATE_SUSPENDED, env, path, StartupInfo)
